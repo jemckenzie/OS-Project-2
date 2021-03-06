@@ -29,6 +29,7 @@ tid_t
 process_execute (const char *file_name) 
 {
   char *fn_copy;
+  char *prog_name;//ADDED CODE
   tid_t tid;
 
   /* Make a copy of FILE_NAME.
@@ -36,13 +37,25 @@ process_execute (const char *file_name)
   fn_copy = palloc_get_page (0);
   if (fn_copy == NULL)
     return TID_ERROR;
-  strlcpy (fn_copy, file_name, PGSIZE);
+  strlcpy (fn_copy, file_name, PGSIZE); //copy of command line string
+
+  //ADDED CODE
+  //creates a new string that contains only the program name
+  char * save_ptr;
+  prog_name = malloc(strlen(file_name)+1);
+  strlcpy(prog_name, file_name, strlen(file_name)+1);
+  prog_name = strtok_r((char *)file_name, " ", &save_ptr);
+
 
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
+  tid = thread_create (prog_name, PRI_DEFAULT, start_process, fn_copy); //changed first param from file_name to prog_name
+  free(prog_name);//ADDED CODE
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
   return tid;
+
+  //!!!!!!!! Need to make sure that we have soemthing to say that the thread we just created is a child. Since every new thread we create is a child(pretty sure). 
+  //DO this by either making a struct semaphore child_lock (which is either saying it is waiting on a child or is a child) and sema up and down when appropriate or potentially could have a list of children
 }
 
 /* A thread function that loads a user process and starts it
@@ -195,7 +208,7 @@ struct Elf32_Phdr
 #define PF_W 2          /* Writable. */
 #define PF_R 4          /* Readable. */
 
-static bool setup_stack (void **esp);
+static bool setup_stack (void **esp, char *file_name); //ADDED char *file_name as parameter
 static bool validate_segment (const struct Elf32_Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           uint32_t read_bytes, uint32_t zero_bytes,
@@ -302,7 +315,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
     }
 
   /* Set up stack. */
-  if (!setup_stack (esp))
+  if (!setup_stack (esp, file_name)) //ADDED file_name as a parameter
     goto done;
 
   /* Start address. */
@@ -427,7 +440,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 /* Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
 static bool
-setup_stack (void **esp) 
+setup_stack (void **esp, char *file_name) 
 {
   uint8_t *kpage;
   bool success = false;
@@ -441,6 +454,64 @@ setup_stack (void **esp)
       else
         palloc_free_page (kpage);
     }
+
+  //ADDED CODE
+  char *token, *save_ptr;
+  int i;
+  int argc = 0; //keeps track of the amount of words inside the command line
+
+  //ADDED CODE
+  //create a char pointer to hold all of the words when we split the command lines call to separate words
+  char *copy = malloc(strlen(file_name)+1); //!!!!!!! might need to be a double pointer, but I dont think it does
+  strlcpy(copy, file_name, strlen(file_name)+1);
+  char **argv = calloc(argc,sizeof(char*)); //address of everything I believe???????????????? !!!!!!!!!!!!!! There is no way i wont have to mess around wiht the calloc and the sizeof() because idk what im doing
+  
+  //ADDED CODE
+  //Now split the command line into words and store them at th top of our pointer
+  for(token = strtock_r(copy," ", &save_ptr); token != NULL, token = strtok_r(NULL, " ", &save_ptr))
+  {
+    argv[argc] = token;
+    argc++;
+  }
+  
+  //ADDED CODE
+  //Add NULL to the end of the stack
+  argv[argc] = 0;
+  
+  //ADDED CODE
+  //Word-aligned acess is much faster than unaligned, so for best performance we want to round the stack pointer down to a multiple of 4
+  i = (size_t)*esp % 4;
+  for(i)
+  {
+    *esp -= i;
+    memcpy(*esp, &argv[argc], i);
+  }
+
+  //ADDED CODE
+  //Placing the words in the stack in right-to-left order, then adding the NULL pointer sentinel at the end of the stack. Order doesn't matter because they are referenced by a pointer
+  for(i = argc - 1; i >= 0; i--) //!!!!!!!double check to see if if <= and with the - 1
+  {
+    *esp -= sizeof(char*);
+    memcpy(*esp, argv[i], sizeof(char*));
+  }
+  
+
+  //ADDED CODE
+  //pushing ardv, then argc, then a fake "return address"
+  token = *esp;
+
+  *esp -= sizeof(char**);
+  memcpy(*esp, &token, sizeof(char**));
+
+  *esp -= sizeof(int);
+  memcpy(*esp, &argc, sizeof(int));
+
+  *esp -= sizeof(void*);
+  memcpy(*esp, &argv[argc], sizeof(void*));
+
+  free(copy);
+  free(argv);
+
   return success;
 }
 

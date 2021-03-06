@@ -202,7 +202,7 @@ lock_acquire (struct lock *lock)
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
 
-
+#ifdef THREADS_THREAD_H
   //ADDED CODE
   //if lock has a holder already then set the thread on the waiting list for the lock (<->lock on waiting list for thread) and insert order the current thread donation list element into the list of lock holder's donation list
   if(lock->holder)
@@ -231,6 +231,8 @@ lock_acquire (struct lock *lock)
   {
     thread_current()->lock_thread = NULL;
   }
+  #endif
+
   sema_down (&lock->semaphore);
   lock->holder = thread_current ();
 
@@ -299,6 +301,7 @@ lock_release (struct lock *lock)
   lock->holder = NULL;
   sema_up (&lock->semaphore);
 
+  #ifdef THREADS_THREAD_H
   //ADDED CODE
   //if the list of donation threads is empty, then we dont need to do any donations and we make the thread return to it's initial priority
   if(list_empty(&thread_current()->donation_list))
@@ -346,7 +349,7 @@ lock_release (struct lock *lock)
       thread_set_priority(thread_current()->initial_priority);
     }
   }
-
+  #endif
 }
 
 /* Returns true if the current thread holds LOCK, false
